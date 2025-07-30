@@ -1,45 +1,29 @@
 pipeline {
   agent {
     kubernetes {
-      label 'docker'            // <- your existing K8s agent label
-      defaultContainer 'docker' // <- run sh steps in the docker-cli container
+      label 'docker'
+      defaultContainer 'docker'
     }
   }
 
-
-
   environment {
-    // ---- Update these for your backend repo & Docker Hub ----
-    REPO_URL = 'https://github.com/Devops8989/Devops_ecom_backend.git'
-    GIT_BRANCH = 'staging'
-    IMAGE_NAME = 'singhsajal/ecommerce-backend'
-    DOCKERHUB_CREDENTIALS_ID = 'dockerhub'  // Jenkins creds ID (username+password)
-    // ---------------------------------------------------------
-    SHORT_SHA = ''
+    IMAGE_NAME = "singhsajal/ecommerce-backend"      // <-- backend image on Docker Hub
+    DOCKERHUB_CREDENTIALS_ID = 'dockerhub'           // <-- Jenkins DockerHub creds ID
   }
 
   stages {
     stage('Checkout') {
       steps {
-        git branch: env.GIT_BRANCH, url: env.REPO_URL
+        // Backend repo (staging branch)
+        git branch: 'staging', url: 'https://github.com/Devops8989/Devops_ecom_backend.git'
       }
     }
 
-    // stage('Compute Tag') {
-    //   steps {
-    //     script {
-    //       env.SHORT_SHA = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
-    //       echo "Short SHA: ${env.SHORT_SHA}"
-    //     }
-    //   }
-    // }
-
     stage('Build Docker Image') {
       steps {
-        sh """
-          echo "Building image: ${IMAGE_NAME}:latest and ${IMAGE_NAME}:${SHORT_SHA}"
-          docker build -t ${IMAGE_NAME}:latest -t ${IMAGE_NAME}:${SHORT_SHA} .
-        """
+        container('docker') {
+          sh 'docker build -t $IMAGE_NAME:latest .'
+        }
       }
     }
 
@@ -47,10 +31,7 @@ pipeline {
       steps {
         container('docker') {
           withDockerRegistry([credentialsId: env.DOCKERHUB_CREDENTIALS_ID, url: '']) {
-            sh """
-              docker push ${IMAGE_NAME}:latest
-              docker push ${IMAGE_NAME}:${SHORT_SHA}
-            """
+            sh 'docker push $IMAGE_NAME:latest'
           }
         }
       }
@@ -58,16 +39,11 @@ pipeline {
   }
 
   post {
-    success {
-      echo "✅ Image pushed: ${IMAGE_NAME}:latest and :${SHORT_SHA}"
-    }
     failure {
       echo "❌ Build or push failed."
     }
-    always {
-      // keep the ephemeral agent clean
-      sh 'docker image prune -f || true'
-      sh 'docker system df || true'
+    success {
+      echo "✅ Docker image built and pushed successfully."
     }
   }
 }
