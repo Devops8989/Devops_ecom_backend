@@ -6,10 +6,7 @@ pipeline {
     }
   }
 
-  options {
-    timestamps()
-    ansiColor('xterm')
-  }
+
 
   environment {
     // ---- Update these for your backend repo & Docker Hub ----
@@ -28,14 +25,14 @@ pipeline {
       }
     }
 
-    stage('Compute Tag') {
-      steps {
-        script {
-          env.SHORT_SHA = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
-          echo "Short SHA: ${env.SHORT_SHA}"
-        }
-      }
-    }
+    // stage('Compute Tag') {
+    //   steps {
+    //     script {
+    //       env.SHORT_SHA = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
+    //       echo "Short SHA: ${env.SHORT_SHA}"
+    //     }
+    //   }
+    // }
 
     stage('Build Docker Image') {
       steps {
