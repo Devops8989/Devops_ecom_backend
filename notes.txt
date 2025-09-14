@@ -1,0 +1,195 @@
+Goal:
+
+Securely access MongoDB URI from AWS Secrets Manager in a backend pod running in the staging namespace of an EKS cluster using IRSA and External Secrets Operator.
+
+Step-by-Step Flow:
+
+1. Store MongoDB URI in AWS Secrets Manager
+
+Go to AWS Console > Secrets Manager > Store new secret
+
+Choose "Other type of secret"
+
+Key: uri, Value: mongodb://staginguser:stagingpass@mongodb:27017/stagingdb?authSource=admin
+
+Secret name: prod/mongodb-credentials
+
+2. Enable OIDC for EKS (One-time Setup)
+
+eksctl utils associate-iam-oidc-provider \
+  --cluster <your-cluster-name> \
+  --approve
+
+3. Create IAM Policy for SecretsManager Access
+
+AWS Console > IAM > Policies > Create policy (JSON):
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["secretsmanager:GetSecretValue"],
+      "Resource": "*"
+    }
+  ]
+}
+
+Name it: ExternalSecretsAccessPolicy
+
+4. Create IAM Role for IRSA
+
+IAM > Roles > Create role > Web identity
+
+Choose your EKS OIDC provider
+
+Attach ExternalSecretsAccessPolicy
+
+Name: EKSExternalSecretsRole
+
+Edit trust policy:
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/<OIDC_PROVIDER_URL>"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "<OIDC_PROVIDER_URL>:sub": "system:serviceaccount:external-secrets:external-secrets-sa"
+        }
+      }
+    }
+  ]
+}
+
+5. Create Kubernetes Service Account Bound to IAM Role
+
+File: eks/secret-irsa-serviceaccount.yaml
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: external-secrets-sa
+  namespace: external-secrets
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::<ACCOUNT_ID>:role/EKSExternalSecretsRole
+
+Apply:
+
+kubectl apply -f eks/secret-irsa-serviceaccount.yaml
+
+6. Install External Secrets Operator (ESO)
+
+helm repo add external-secrets https://charts.external-secrets.io
+helm repo update
+helm install external-secrets external-secrets/external-secrets \
+  -n external-secrets --create-namespace
+
+7. Create ClusterSecretStore Resource
+
+File: eks/aws-secret-store.yaml
+
+apiVersion: external-secrets.io/v1beta1
+kind: ClusterSecretStore
+metadata:
+  name: aws-secrets-manager
+spec:
+  provider:
+    aws:
+      service: SecretsManager
+      region: ap-south-1
+      auth:
+        jwt:
+          serviceAccountRef:
+            name: external-secrets-sa
+            namespace: external-secrets
+
+Apply:
+
+kubectl apply -f eks/aws-secret-store.yaml
+
+8. Create ExternalSecret Resource in staging Namespace
+
+File: eks/backend-external-secret.yaml
+
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: backend-secret
+  namespace: staging
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-secrets-manager
+    kind: ClusterSecretStore
+  target:
+    name: backend-secret
+  data:
+    - secretKey: MONGO_URI
+      remoteRef:
+        key: prod/mongodb-credentials
+        property: uri
+
+Apply:
+
+kubectl apply -f eks/backend-external-secret.yaml
+
+9. Reference the Secret in Backend Deployment
+
+env:
+  - name: MONGO_URI
+    valueFrom:
+      secretKeyRef:
+        name: backend-secret
+        key: MONGO_URI
+
+Then upgrade your Helm release:
+
+helm upgrade --install backend ./k8s/charts/backend \
+  -n staging \
+  -f k8s/envs/staging/backend-values.yaml
+
+Final Summary:
+
+Component
+
+Purpose
+
+Secrets Manager
+
+Secure store for MongoDB URI
+
+IAM Role + IRSA
+
+Grants pod secure AWS access using Service Account
+
+OIDC
+
+Connects EKS identity to AWS IAM
+
+ServiceAccount
+
+Identity used by External Secrets Operator pod
+
+External Secrets (ESO)
+
+Pulls secret from AWS and creates Kubernetes Secret
+
+ExternalSecret
+
+Instruction for ESO to fetch secret
+
+Kubernetes Secret
+
+Created automatically, used by backend pod
+
+Backend Deployment
+
+Reads MONGO_URI env var from Kubernetes Secret
+
+✅ This setup follows production best practices — no secrets in GitHub or values.yaml.
