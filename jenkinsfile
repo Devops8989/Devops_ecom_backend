@@ -102,14 +102,14 @@ pipeline {
    agent any
 
    environment {
-      IMAGE_NAME = "singhsajal/ecommerce-frontend"
+      IMAGE_NAME = "singhsajal/ecommerce-backend"
       DOCKERHUB_CREDENTIALS_ID = 'dockerhub' // Jenkins secret ID
    }
 
    stages {
       stage('Checkout') {
          steps {
-            git branch: 'staging', url: 'https://github.com/Devops8989/Devops_ecom_frontend.git'
+            git branch: 'staging', url: 'https://github.com/Devops8989/Devops_ecom_backend.git'
          }
       }
 
