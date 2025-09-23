@@ -99,51 +99,41 @@
 // }
 
 pipeline {
-  agent { label 'k8s-agent' }
+   agent any
 
-  environment {
-    IMAGE_NAME = "singhsajal/ecommerce-backend"
-  }
+   environment {
+      IMAGE_NAME = "singhsajal/ecommerce-frontend"
+      DOCKERHUB_CREDENTIALS_ID = 'dockerhub' // Jenkins secret ID
+   }
 
-  stages {
-    stage('Checkout') {
-      steps {
-        git branch: 'staging', url: 'https://github.com/Devops8989/Devops_ecom_backend.git'
+   stages {
+      stage('Checkout') {
+         steps {
+            git branch: 'staging', url: 'https://github.com/Devops8989/Devops_ecom_frontend.git'
+         }
       }
-    }
 
-    stage('Build Docker Image') {
-      steps {
-        sh 'docker build -t $IMAGE_NAME:${BUILD_NUMBER} .'
+      stage('Build Docker Image') {
+         steps {
+            sh 'docker build -t $IMAGE_NAME:latest .'
+         }
       }
-    }
 
-    stage('Push Docker Image') {
-      steps {
-        withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-          sh '''
-            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-            docker push $IMAGE_NAME:${BUILD_NUMBER}
-          '''
-        }
+      stage('Push Docker Image') {
+         steps {
+            withDockerRegistry([credentialsId: env.DOCKERHUB_CREDENTIALS_ID, url: '']) {
+               sh 'docker push $IMAGE_NAME:latest'
+            }
+         }
       }
-    }
+   }
 
-    stage('Deploy to Staging') {
-      steps {
-        withKubeConfig([credentialsId: 'kubeconfig-staging']) {
-          sh 'helm upgrade --install frontend ./helm/frontend -n staging -f ./helm/envs/staging/frontend-values.yaml --set image.tag=${BUILD_NUMBER}'
-        }
+   post {
+      failure {
+         echo "❌ Build or push failed."
       }
-    }
-  }
-
-  post {
-    success {
-      echo "✅ Deployed successfully!"
-    }
-    failure {
-      echo "❌ Build failed."
-    }
-  }
+      success {
+         echo "✅ Docker image built and pushed successfully."
+      }
+   }
 }
